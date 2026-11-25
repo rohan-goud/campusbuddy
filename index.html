@@ -1,1 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Campus Buddy</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#7c3aed">
+<!-- Text reader for photos (used only by Classmates → Import from photo) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: system-ui, sans-serif; color: #fff;
+    padding-top: env(safe-area-inset-top, 0px);
+    background: linear-gradient(-45deg, #7c3aed, #ec4899, #06b6d4, #f59e0b);
+    background-size: 400% 400%; animation: bgShift 14s ease infinite; overflow-x: hidden;
+  }
+  @keyframes bgShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
 
+  .blob { position: fixed; width: 260px; height: 260px; border-radius: 50%; filter: blur(60px); opacity: .5; z-index: -1; animation: float 12s ease-in-out infinite; }
+  .b1 { background: #fde047; top: -60px; left: -60px; }
+  .b2 { background: #a78bfa; bottom: -80px; right: -60px; animation-delay: -4s; }
+  @keyframes float { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(40px,30px) scale(1.15)} }
+
+  .glass {
+    background: rgba(255,255,255,.18);
+    backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.4); border-radius: 24px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.5);
+    padding: 18px; margin: 14px;
+    animation: pop .6s cubic-bezier(.34,1.56,.64,1) both; transition: transform .3s;
+  }
+  .glass:hover { transform: translateY(-3px); }
+  @keyframes pop { from{opacity:0; transform:translateY(30px) scale(.9)} to{opacity:1; transform:none} }
+  .shake { animation: shake .4s !important; }
+  @keyframes shake { 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+  .pulse { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50%{transform:scale(1.08)} }
+
+  h1 { font-size: 28px; margin: 0 0 4px; background: linear-gradient(90deg,#fff,#fde047,#fff); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 3s linear infinite; }
+  @keyframes shine { to { background-position: 200% center; } }
+  h3 { margin: 0 0 8px; }
+  p { margin: 6px 0; }
+  .sub { opacity: .85; font-size: 14px; }
+  .empty { opacity: .85; text-align: center; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .link { color: #fff; display: block; margin-top: 4px; }
+  .done { text-decoration: line-through; opacity: .6; }
+
+  .btn {
+    position: relative; overflow: hidden;
+    background: rgba(255,255,255,.3); border: 1px solid rgba(255,255,255,.6); border-radius: 16px;
+    padding: 12px 18px; margin: 4px 4px 4px 0; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 0 20px rgba(255,255,255,.6); }
+  .btn:active { transform: scale(.92); }
+  .btn.small { padding: 8px 12px; font-size: 14px; }
+  .btn.bad { background: rgba(251,113,133,.5); }
+  .ripple { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,.7); transform: scale(0); animation: ripple .6s ease-out forwards; pointer-events: none; }
+  @keyframes ripple { to { transform: scale(12); opacity: 0; } }
+
+  input, select, textarea { width: 100%; padding: 12px; margin: 6px 0; border: 1px solid rgba(255,255,255,.5); border-radius: 14px; background: rgba(255,255,255,.2); color: #fff; font-size: 16px; font-family: inherit; outline: none; }
+  select option { color: #111; }
+  input::placeholder, textarea::placeholder { color: rgba(255,255,255,.75); }
+  input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 3px rgba(253,224,71,.7); }
+  .check { width: auto; margin: 0 8px 0 0; transform: scale(1.4); }
+
+  .bar { height: 12px; border-radius: 10px; background: rgba(255,255,255,.3); overflow: hidden; margin: 10px 0 6px; }
+  .bar > div { height: 100%; border-radius: 10px; background: linear-gradient(90deg,#22d3ee,#4ade80); transition: width 1s cubic-bezier(.22,1,.36,1); }
+  .bar > div.warn { background: linear-gradient(90deg,#fb7185,#facc15); }
+  .tag { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 99px; font-weight: 700; margin-left: 6px; }
+  .good { background: #4ade80; color: #052e16; }
+  .danger { background: #fb7185; color: #4c0519; }
+  .neutral { background: rgba(255,255,255,.35); color: #fff; }
+
+  .section { display: none; padding-bottom: 120px; }
+  .section.active { display: block; }
+  nav {
+    position: fixed; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 8px; max-width: 96vw; z-index: 10;
+    background: rgba(255,255,255,.22); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,.45); border-radius: 26px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  }
+  .tab { background: none; border: none; color: #fff; font-size: 11px; padding: 6px 7px; border-radius: 18px; cursor: pointer; transition: background .3s; }
+  .tab .icon { display: block; font-size: 20px; }
+  .tab.active { background: rgba(255,255,255,.35); }
+  .tab.active .icon { animation: bounce .6s; }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 40%{transform:translateY(-8px) scale(1.2)} }
+
+  /* PIN prompt */
+  .lock { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(20,10,50,.7); backdrop-filter: blur(8px); }
+  .lock.hidden { display: none; }
+  .lockbox { width: 100%; max-width: 360px; text-align: center; }
+  .lock input { font-size: 28px; letter-spacing: 12px; text-align: center; }
+
+  .credit { position: relative; text-align: center; overflow: hidden; z-index: 0; }
+  .credit::before { content: ""; position: absolute; inset: -50%; background: conic-gradient(#f472b6,#facc15,#34d399,#60a5fa,#a78bfa,#f472b6); animation: spin 6s linear infinite; z-index: -2; }
+  .credit::after { content: ""; position: absolute; inset: 2px; border-radius: 22px; background: rgba(20,10,50,.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: -1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .avatar { width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; background: linear-gradient(135deg,#f472b6,#facc15); animation: breathe 2.5s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{box-shadow:0 0 18px rgba(244,114,182,.5)} 50%{box-shadow:0 0 40px rgba(250,204,21,.9)} }
+  .credit-name { font-size: 26px; font-weight: 800; margin: 0; background: linear-gradient(90deg,#fff,#facc15,#fff,#f472b6,#fff); background-size: 300% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 4s linear infinite; }
+  .btnlink { display: block; padding: 12px; margin-top: 10px; border-radius: 16px; text-decoration: none; color: #fff; font-weight: 600; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.35); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+
+<!-- PIN PROMPT (hidden until a protected action is opened) -->
+<div class="lock hidden" id="lock">
+  <div class="glass lockbox">
+    <h2>🔐 Enter PIN</h2>
+    <p class="sub" id="lockMsg">Enter PIN to continue</p>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••">
+    <button class="btn" id="pinBtn">🔓 Unlock</button>
+    <button class="btn" id="pinCancel">Cancel</button>
+    <br>
+    <button class="btn small bad" id="forgotPin">Forgot PIN? Erase data</button>
+  </div>
+</div>
+
+<!-- HOME -->
+<section class="section active" id="home">
+  <div class="glass"><h1 id="hello">Hi 👋</h1><p class="sub" id="sub"></p></div>
+  <div class="glass"><h3>📅 Today's classes</h3><div id="todayClasses"></div></div>
+  <div class="glass"><h3>⏰ Upcoming deadlines</h3><div id="homeDeadlines"></div></div>
+  <div class="glass"><h3>📝 Next exam</h3><div id="homeExam"></div></div>
+  <div class="glass"><h3>📊 Attendance</h3><div id="homeAtt"></div></div>
+  <div class="glass">
+    <button class="btn" onclick="showSection('classmates')">👥 Classmates</button>
+    <button class="btn" onclick="showSection('profile')">👤 My details</button>
+  </div>
+</section>
+
+<!-- ATTENDANCE -->
+<section class="section" id="attendance">
+  <div class="glass">
+    <h3>➕ Add subject</h3>
+    <input id="subName" placeholder="Subject name (e.g. DBMS)">
+    <input id="subAttended" type="number" min="0" inputmode="numeric" placeholder="Classes attended so far">
+    <input id="subTotal" type="number" min="0" inputmode="numeric" placeholder="Total classes held so far">
+    <button class="btn" id="addSubject">Add subject</button>
+  </div>
+  <div id="subjectList"></div>
+</section>
+
+<!-- TIMETABLE -->
+<section class="section" id="timetable">
+  <div class="glass">
+    <h3>➕ Add class</h3>
+    <select id="tDay">
+      <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+      <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option>
+      <option value="0">Sunday</option>
+    </select>
+    <input id="tTime" type="time">
+    <input id="tSubject" placeholder="Subject *">
+    <input id="tRoom" placeholder="Room (optional)">
+    <button class="btn" id="addSlot">Add class</button>
+  </div>
+  <div id="timetableList"></div>
+</section>
+
+<!-- EXAMS -->
+<section class="section" id="exams">
+  <div class="glass">
+    <h3>📝 Add exam</h3>
+    <input id="eSubject" placeholder="Subject *">
+    <input id="eDate" type="date">
+    <input id="eTime" type="time">
+    <input id="eVenue" placeholder="Venue / room (optional)">
+    <button class="btn" id="addExam">Add exam</button>
+  </div>
+  <div id="examList"></div>
+</section>
+
+<!-- DEADLINES -->
+<section class="section" id="deadlines">
+  <div class="glass">
+    <h3>⏰ Add deadline</h3>
+    <input id="dTask" placeholder="Task (e.g. Lab record submission) *">
+    <input id="dSubject" placeholder="Subject (optional)">
+    <input id="dDate" type="date">
+    <button class="btn" id="addDeadline">Add deadline</button>
+  </div>
+  <div id="deadlineList"></div>
+</section>
+
+<!-- PROFILE -->
+<section class="section" id="profile">
+  <div class="glass">
+    <h3>👤 Your details</h3>
+    <input id="pName" placeholder="Full name *">
+    <input id="pCollege" placeholder="College name *">
+    <input id="pBranch" placeholder="Branch (e.g. CSE)">
+    <input id="pYear" placeholder="Year (e.g. 2nd year)">
+    <input id="pSection" placeholder="Section">
+    <input id="pRoll" placeholder="Roll number">
+    <button class="btn" id="saveProfile">💾 Save details</button>
+  </div>
+</section>
+
+<!-- CLASSMATES -->
+<section class="section" id="classmates">
+  <div class="glass">
+    <h3>👥 Add classmate</h3>
+    <input id="cName" placeholder="Name *">
+    <input id="cRoll" placeholder="Roll number">
+    <input id="cGroup" placeholder="Group (e.g. Group 3)">
+    <input id="cPhone" type="tel" placeholder="Phone">
+    <input id="cEmail" type="email" placeholder="Email">
+    <input id="cNote" placeholder="Note (e.g. presents slides 4-6)">
+    <button class="btn" id="addClassmate">Add classmate</button>
+  </div>
+  <div class="glass">
+    <h3>📷 Import from photo</h3>
+    <p class="sub">Pick a clear photo or screenshot of the list. Check the names before adding.</p>
+    <input id="imgFile" type="file" accept="image/*">
+    <input id="importGroup" placeholder="Group for these students (optional)">
+    <button class="btn" id="readImg">🔍 Read photo</button>
+    <p id="ocrStatus" class="sub"></p>
+    <textarea id="ocrText" rows="8" placeholder="Names appear here, one per line. Fix mistakes, then tap Add."></textarea>
+    <button class="btn" id="importBtn">✅ Add to classmates</button>
+  </div>
+  <div class="glass">
+    <input id="cSearch" placeholder="🔍 Search name, roll or group">
+    <p id="cCount" style="font-weight:700"></p>
+  </div>
+  <div id="classmateList"></div>
+</section>
+
+<!-- SETTINGS -->
+<section class="section" id="settings">
+  <div class="glass">
+    <h3>🔔 Morning reminder</h3>
+    <label class="row"><span>Turn on reminder</span><input id="rOn" type="checkbox" class="check"></label>
+    <input id="rTime" type="time">
+    <button class="btn" id="saveReminder">💾 Save reminder</button>
+    <button class="btn" id="enableNotif">🔓 Allow notifications</button>
+    <button class="btn" id="testNotif">🧪 Test</button>
+    <p class="sub" id="reminderStatus"></p>
+  </div>
+
+  <div class="glass">
+    <h3>🔐 PIN lock</h3>
+    <p class="sub" id="pinStatus"></p>
+    <input id="curPin" type="password" inputmode="numeric" maxlength="6" placeholder="Current PIN (if you have one)">
+    <input id="newPin" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN (4 to 6 digits)">
+    <button class="btn" id="setPin">💾 Set PIN</button>
+    <button class="btn bad" id="removePin">🔓 Remove PIN</button>
+  </div>
+
+  <div class="glass">
+    <h3>☁️ Online features</h3>
+    <p class="sub">Locked with your PIN. These need a server and may cost money.</p>
+    <button class="btn" id="openOnline">🔐 Open with PIN</button>
+    <div id="onlinePanel" style="display:none">
+      <p>🤖 AI notice upload: <b>not set up</b></p>
+      <p>⏰ Reminders when app is closed: <b>not set up</b></p>
+      <p>☁️ Sync between phones: <b>not set up</b></p>
+    </div>
+  </div>
+
+  <div class="glass">
+    <h3>💾 Backup</h3>
+    <p>Save your data to a file. Keep it in Google Drive or WhatsApp to yourself.</p>
+    <button class="btn" id="exportBtn">📤 Save backup</button>
+  </div>
+  <div class="glass">
+    <h3>📥 Restore</h3>
+    <p>Restoring replaces the data on this phone.</p>
+    <input id="importFile" type="file" accept=".json,application/json">
+    <button class="btn" id="restoreBtn">♻️ Restore</button>
+  </div>
+  <div class="glass">
+    <h3>⚠️ Danger zone</h3>
+    <button class="btn" onclick="showSection('profile')">✏️ Edit my details</button>
+    <button class="btn bad" id="clearBtn">🗑️ Clear all data</button>
+  </div>
+
+  <div class="glass credit">
+    <div class="avatar">R</div>
+    <p class="credit-name">Rohan</p>
+    <p style="letter-spacing:2px; font-size:13px; opacity:.85">CREATOR OF CAMPUS BUDDY</p>
+    <a class="btnlink" href="mailto:sairohanerukonda@gmail.com">📧 sairohanerukonda@gmail.com</a>
+    <a class="btnlink" href="https://www.instagram.com/rohannngoud/" target="_blank" rel="noopener">📸 @rohannngoud</a>
+  </div>
+</section>
+
+<!-- BOTTOM NAVIGATION -->
+<nav>
+  <button class="tab active" data-target="home"><span class="icon">🏠</span>Home</button>
+  <button class="tab" data-target="attendance"><span class="icon">📊</span>Attend</button>
+  <button class="tab" data-target="timetable"><span class="icon">🗓️</span>Classes</button>
+  <button class="tab" data-target="exams"><span class="icon">📝</span>Exams</button>
+  <button class="tab" data-target="deadlines"><span class="icon">⏰</span>Due</button>
+  <button class="tab" data-target="settings"><span class="icon">⚙️</span>More</button>
+</nav>
+
+<script>
+// ================= HELPERS =================
+const $ = (id) => document.getElementById(id);
+const load = (key, fallback) => JSON.parse(localStorage.getItem(key)) ?? fallback;
+const store = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+function makeEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function emptyCard(list, msg) { list.innerHTML = ""; list.appendChild(makeEl("div", "glass empty", msg)); }
+function shake(el) { el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
+
+// ================= SAVED DATA =================
+let profile = load("profile", null);
+let subjects = load("subjects", []);
+let classmates = load("classmates", []);
+let timetable = load("timetable", []);
+let exams = load("exams", []);
+let deadlines = load("deadlines", []);
+let reminder = load("reminder", { on: false, time: "07:00", lastShown: "" });
+
+// ================= DATE HELPERS =================
+function ymd(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+const todayStr = () => ymd(new Date());
+function daysUntil(dateStr) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(dateStr + "T00:00") - today) / 86400000);
+}
+function fmtDate(dateStr) {
+  return new Date(dateStr + "T00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+function dueText(d) {
+  const n = daysUntil(d.date);
+  if (n < 0) return `Overdue by ${-n} day(s)`;
+  if (n === 0) return "Due today";
+  if (n === 1) return "Due tomorrow";
+  return `Due in ${n} days`;
+}
+function todayClasses() {
+  return timetable.filter((c) => c.day === new Date().getDay()).sort((a, b) => a.start.localeCompare(b.start));
+}
+function openDeadlines() { return deadlines.filter((d) => !d.done).sort((a, b) => a.date.localeCompare(b.date)); }
+function nextExam() { return exams.filter((e) => daysUntil(e.date) >= 0).sort((a, b) => a.date.localeCompare(b.date))[0]; }
+
+// ================= ATTENDANCE MATHS =================
+function percent(s) { return s.total ? (s.attended / s.total) * 100 : null; }
+function canBunk(s) { return Math.max(0, Math.floor((4 * s.attended) / 3 - s.total)); }
+function needNext(s) { return Math.max(0, Math.ceil(3 * s.total - 4 * s.attended)); }
+function attendanceText(s) {
+  const p = percent(s);
+  if (p === null) return "No classes recorded yet";
+  if (p >= 75) return `${p.toFixed(1)}% · You can bunk ${canBunk(s)} more class(es)`;
+  return `${p.toFixed(1)}% · Attend ${needNext(s)} classes in a row to reach 75%`;
+}
+
+// ================= SCREENS =================
+const RENDER = {
+  home: () => renderHome(),
+  attendance: () => renderSubjects(),
+  timetable: () => renderTimetable(),
+  exams: () => renderExams(),
+  deadlines: () => renderDeadlines(),
+  classmates: () => renderClassmates(),
+  profile: () => loadProfileForm(),
+  settings: () => { renderSettings(); updatePinStatus(); },
+};
+function showSection(id) {
+  document.querySelectorAll(".section").forEach((s) => s.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.target === id));
+  $(id).classList.add("active");
+  RENDER[id]();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => showSection(btn.dataset.target)));
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn");
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  const span = makeEl("span", "ripple");
+  span.style.left = (e.clientX - r.left - 10) + "px";
+  span.style.top = (e.clientY - r.top - 10) + "px";
+  btn.appendChild(span);
+  setTimeout(() => span.remove(), 600);
+});
+
+// ================= PROFILE & HOME =================
+const PROFILE_FIELDS = { pName: "name", pCollege: "college", pBranch: "branch", pYear: "year", pSection: "section", pRoll: "roll" };
+function loadProfileForm() {
+  for (const [id, key] of Object.entries(PROFILE_FIELDS)) $(id).value = profile?.[key] || "";
+}
+$("saveProfile").addEventListener("click", () => {
+  const data = {};
+  for (const [id, key] of Object.entries(PROFILE_FIELDS)) data[key] = $(id).value.trim();
+  if (!data.name || !data.college) { shake($("profile").querySelector(".glass")); return; }
+  profile = data;
+  store("profile", profile);
+  showSection("home");
+});
+
+function renderHome() {
+  $("hello").textContent = profile ? `Hi, ${profile.name} 👋` : "Hi there 👋";
+  $("sub").textContent = profile
+    ? [profile.branch, profile.year, profile.college].filter(Boolean).join(" · ")
+    : "Add your details in My details";
+
+  const box = $("todayClasses");
+  box.innerHTML = "";
+  const tc = todayClasses();
+  if (!tc.length) box.appendChild(makeEl("p", "", "No classes today 🎉"));
+  tc.forEach((c) => box.appendChild(makeEl("p", "", `${c.start} · ${c.subject}${c.room ? " · Room " + c.room : ""}`)));
+
+  const dl = $("homeDeadlines");
+  dl.innerHTML = "";
+  const top = openDeadlines().slice(0, 3);
+  if (!top.length) dl.appendChild(makeEl("p", "", "All caught up ✅"));
+  top.forEach((d) => dl.appendChild(makeEl("p", "", `${d.task} · ${dueText(d)}`)));
+
+  const ne = nextExam();
+  $("homeExam").innerHTML = "";
+  $("homeExam").appendChild(makeEl("p", "", ne
+    ? `${ne.subject} · ${daysUntil(ne.date) === 0 ? "today" : "in " + daysUntil(ne.date) + " day(s)"}`
+    : "No upcoming exams"));
+
+  const warn = subjects.filter((s) => percent(s) !== null && percent(s) < 75).length;
+  $("homeAtt").innerHTML = "";
+  $("homeAtt").appendChild(makeEl("p", "", !subjects.length
+    ? "No subjects yet."
+    : warn ? `⚠️ ${warn} subject(s) below 75%` : `✅ All ${subjects.length} subject(s) are at 75% or above`));
+}
+
+// ================= ATTENDANCE =================
+function renderSubjects() {
+  const list = $("subjectList");
+  list.innerHTML = "";
+  if (!subjects.length) return emptyCard(list, "No subjects yet. Add one above.");
+
+  const update = (change) => () => { change(); store("subjects", subjects); renderSubjects(); };
+
+  subjects.forEach((s, i) => {
+    const p = percent(s);
+    const card = makeEl("div", "glass");
+    card.style.animationDelay = i * 0.08 + "s";
+
+    const head = makeEl("div", "row");
+    head.append(
+      makeEl("b", "", s.name),
+      makeEl("span", "tag " + (p === null || p >= 75 ? "good" : "danger"), p === null ? "New" : p >= 75 ? "Safe" : "Warning")
+    );
+
+    const bar = makeEl("div", "bar");
+    const fill = makeEl("div");
+    fill.style.width = (p ?? 0) + "%";
+    if (p !== null && p < 75) fill.classList.add("warn");
+    bar.appendChild(fill);
+
+    const actions = makeEl("div");
+    actions.style.marginTop = "8px";
+    const button = (label, onClick, cls = "") => {
+      const b = makeEl("button", "btn small " + cls, label);
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    actions.append(
+      button("✅ Present", update(() => { s.attended++; s.total++; })),
+      button("❌ Absent", update(() => { s.total++; })),
+      button("✏️ Edit", () => {
+        const a = parseInt(prompt("Classes attended:", s.attended), 10);
+        const t = parseInt(prompt("Total classes held:", s.total), 10);
+        if (isNaN(a) || isNaN(t) || a < 0 || t < 0 || a > t) { alert("Enter valid numbers. Attended cannot be more than total."); return; }
+        s.attended = a; s.total = t;
+        store("subjects", subjects); renderSubjects();
+      }),
+      button("🗑️ Delete", update(() => { if (confirm(`Delete ${s.name}?`)) subjects.splice(i, 1); }), "bad")
+    );
+
+    card.append(head, bar, makeEl("small", "", `${s.attended}/${s.total} classes · ${attendanceText(s)}`), actions);
+    list.appendChild(card);
+  });
+}
+$("addSubject").addEventListener("click", () => {
+  const name = $("subName").value.trim();
+  const attended = parseInt($("subAttended").value || "0", 10);
+  const total = parseInt($("subTotal").value || "0", 10);
+  if (!name || attended < 0 || total < 0 || attended > total) { shake($("attendance").querySelector(".glass")); return; }
+  subjects.push({ name, attended, total });
+  store("subjects", subjects);
+  ["subName", "subAttended", "subTotal"].forEach((id) => ($(id).value = ""));
+  renderSubjects();
+});
+
+// ================= TIMETABLE =================
+function renderTimetable() {
+  const list = $("timetableList");
+  list.innerHTML = "";
+  if (!timetable.length) return emptyCard(list, "No classes added yet.");
+
+  timetable
+    .map((c, i) => ({ ...c, index: i }))
+    .sort((a, b) => a.day - b.day || a.start.localeCompare(b.start))
+    .forEach((c, i) => {
+      const card = makeEl("div", "glass");
+      card.style.animationDelay = i * 0.05 + "s";
+      card.append(
+        makeEl("b", "", `${DAYS[c.day]} · ${c.start}`),
+        makeEl("p", "", `${c.subject}${c.room ? " · Room " + c.room : ""}`)
+      );
+      const del = makeEl("button", "btn small bad", "🗑️ Remove");
+      del.addEventListener("click", () => {
+        if (!confirm(`Remove ${c.subject}?`)) return;
+        timetable.splice(c.index, 1);
+        store("timetable", timetable);
+        renderTimetable();
+      });
+      card.appendChild(del);
+      list.appendChild(card);
+    });
+}
+$("addSlot").addEventListener("click", () => {
+  const subject = $("tSubject").value.trim();
+  const start = $("tTime").value;
+  if (!subject || !start) { shake($("timetable").querySelector(".glass")); return; }
+  timetable.push({ day: parseInt($("tDay").value, 10), start, subject, room: $("tRoom").value.trim() });
+  store("timetable", timetable);
+  ["tSubject", "tTime", "tRoom"].forEach((id) => ($(id).value = ""));
+  renderTimetable();
+});
+
+// ================= EXAMS =================
+function renderExams() {
+  const list = $("examList");
+  list.innerHTML = "";
+  if (!exams.length) return emptyCard(list, "No exams added yet.");
+
+  exams
+    .map((e, i) => ({ ...e, index: i }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .forEach((e, i) => {
+      const n = daysUntil(e.date);
+      const label = n < 0 ? "Done" : n === 0 ? "Today!" : `${n} day(s) left`;
+      const cls = n < 0 ? "neutral" : n <= 3 ? "danger pulse" : "good";
+      const card = makeEl("div", "glass");
+      card.style.animationDelay = i * 0.05 + "s";
+      const head = makeEl("div", "row");
+      head.append(makeEl("b", "", e.subject), makeEl("span", "tag " + cls, label));
+      card.append(head, makeEl("p", "", `${fmtDate(e.date)}${e.time ? " · " + e.time : ""}${e.venue ? " · " + e.venue : ""}`));
+      const del = makeEl("button", "btn small bad", "🗑️ Remove");
+      del.addEventListener("click", () => {
+        if (!confirm(`Remove ${e.subject} exam?`)) return;
+        exams.splice(e.index, 1);
+        store("exams", exams);
+        renderExams();
+      });
+      card.appendChild(del);
+      list.appendChild(card);
+    });
+}
+$("addExam").addEventListener("click", () => {
+  const subject = $("eSubject").value.trim();
+  const date = $("eDate").value;
+  if (!subject || !date) { shake($("exams").querySelector(".glass")); return; }
+  exams.push({ subject, date, time: $("eTime").value, venue: $("eVenue").value.trim() });
+  store("exams", exams);
+  ["eSubject", "eDate", "eTime", "eVenue"].forEach((id) => ($(id).value = ""));
+  renderExams();
+});
+
+// ================= DEADLINES =================
+function renderDeadlines() {
+  const list = $("deadlineList");
+  list.innerHTML = "";
+  if (!deadlines.length) return emptyCard(list, "No deadlines added yet.");
+
+  deadlines
+    .map((d, i) => ({ ...d, index: i }))
+    .sort((a, b) => Number(a.done) - Number(b.done) || (a.date || "").localeCompare(b.date || ""))
+    .forEach((d, i) => {
+      const n = daysUntil(d.date);
+      const card = makeEl("div", "glass");
+      card.style.animationDelay = i * 0.05 + "s";
+
+      const head = makeEl("div", "row");
+      head.appendChild(makeEl("b", d.done ? "done" : "", d.task));
+      if (d.subject) head.appendChild(makeEl("span", "tag neutral", d.subject));
+      card.appendChild(head);
+
+      if (d.done) {
+        card.appendChild(makeEl("span", "tag neutral", "Completed"));
+      } else {
+        const cls = n < 0 ? "danger" : n === 0 ? "danger pulse" : "good";
+        card.appendChild(makeEl("span", "tag " + cls, dueText(d)));
+      }
+      card.appendChild(makeEl("p", "", d.date ? fmtDate(d.date) : "No date"));
+
+      const toggle = makeEl("button", "btn small", d.done ? "↩️ Undo" : "✅ Done");
+      toggle.addEventListener("click", () => {
+        deadlines[d.index].done = !deadlines[d.index].done;
+        store("deadlines", deadlines);
+        renderDeadlines();
+      });
+      const del = makeEl("button", "btn small bad", "🗑️ Remove");
+      del.addEventListener("click", () => {
+        if (!confirm(`Remove "${d.task}"?`)) return;
+        deadlines.splice(d.index, 1);
+        store("deadlines", deadlines);
+        renderDeadlines();
+      });
+      card.append(toggle, del);
+      list.appendChild(card);
+    });
+}
+$("addDeadline").addEventListener("click", () => {
+  const task = $("dTask").value.trim();
+  const date = $("dDate").value;
+  if (!task || !date) { shake($("deadlines").querySelector(".glass")); return; }
+  deadlines.push({ task, subject: $("dSubject").value.trim(), date, done: false });
+  store("deadlines", deadlines);
+  ["dTask", "dSubject", "dDate"].forEach((id) => ($(id).value = ""));
+  renderDeadlines();
+});
+
+// ================= CLASSMATES =================
+function renderClassmates() {
+  const q = $("cSearch").value.trim().toLowerCase();
+  const list = $("classmateList");
+  list.innerHTML = "";
+  const shown = classmates
+    .map((c, i) => ({ ...c, index: i }))
+    .filter((c) => [c.name, c.roll, c.group].join(" ").toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  $("cCount").textContent = `Total: ${classmates.length} · Showing: ${shown.length}`;
+  if (!shown.length) return emptyCard(list, "No classmates found.");
+
+  shown.forEach((c, i) => {
+    const card = makeEl("div", "glass");
+    card.style.animationDelay = i * 0.05 + "s";
+    card.appendChild(makeEl("b", "", c.name + (c.roll ? " · " + c.roll : "")));
+    if (c.group) card.appendChild(makeEl("span", "tag good", c.group));
+    if (c.phone) { const a = makeEl("a", "link", "📞 " + c.phone); a.href = "tel:" + c.phone; card.appendChild(a); }
+    if (c.email) { const a = makeEl("a", "link", "✉️ " + c.email); a.href = "mailto:" + c.email; card.appendChild(a); }
+    if (c.note) card.appendChild(makeEl("small", "", "📝 " + c.note));
+
+    const del = makeEl("button", "btn small bad", "🗑️ Remove");
+    del.addEventListener("click", () => {
+      if (!confirm(`Remove ${c.name}?`)) return;
+      classmates.splice(c.index, 1);
+      store("classmates", classmates);
+      renderClassmates();
+    });
+    card.appendChild(del);
+    list.appendChild(card);
+  });
+}
+$("addClassmate").addEventListener("click", () => {
+  const c = {
+    name: $("cName").value.trim(), roll: $("cRoll").value.trim(), group: $("cGroup").value.trim(),
+    phone: $("cPhone").value.trim(), email: $("cEmail").value.trim(), note: $("cNote").value.trim(),
+  };
+  if (!c.name) { shake($("classmates").querySelector(".glass")); return; }
+  classmates.push(c);
+  store("classmates", classmates);
+  ["cName", "cRoll", "cGroup", "cPhone", "cEmail", "cNote"].forEach((id) => ($(id).value = ""));
+  renderClassmates();
+});
+$("cSearch").addEventListener("input", renderClassmates);
+
+function parseLine(line) {
+  const parts = line.replace(/[|,;]/g, " ").split(/\s+/).filter(Boolean);
+  const rollIndex = parts.findIndex((p) => /\d/.test(p));
+  let roll = "";
+  if (rollIndex !== -1) { roll = parts[rollIndex]; parts.splice(rollIndex, 1); }
+  const name = parts.filter((p) => /[A-Za-z]/.test(p)).join(" ");
+  return { name, roll };
+}
+$("readImg").addEventListener("click", async () => {
+  const file = $("imgFile").files[0];
+  if (!file) { alert("Choose a photo first."); return; }
+  $("ocrStatus").textContent = "Reading photo...";
+  try {
+    const result = await Tesseract.recognize(file, "eng", {
+      logger: (m) => {
+        if (m.status === "recognizing text") $("ocrStatus").textContent = "Reading... " + Math.round(m.progress * 100) + "%";
+      },
+    });
+    $("ocrText").value = result.data.text.split("\n").map((l) => l.trim()).filter((l) => l.length > 2).join("\n");
+    $("ocrStatus").textContent = "Check the names, fix any mistakes, then tap Add.";
+  } catch (err) {
+    $("ocrStatus").textContent = "Could not read the photo. Check your internet (first time only) and try a clearer photo.";
+  }
+});
+$("importBtn").addEventListener("click", () => {
+  const group = $("importGroup").value.trim();
+  let added = 0, updated = 0, skipped = 0;
+  $("ocrText").value.split("\n").forEach((line) => {
+    const { name, roll } = parseLine(line);
+    if (!name) return;
+    const existing = classmates.find((c) =>
+      (roll && c.roll && c.roll.toLowerCase() === roll.toLowerCase()) ||
+      c.name.toLowerCase() === name.toLowerCase()
+    );
+    if (existing) {
+      let changed = false;
+      if (!existing.roll && roll) { existing.roll = roll; changed = true; }
+      if (!existing.group && group) { existing.group = group; changed = true; }
+      changed ? updated++ : skipped++;
+    } else {
+      classmates.push({ name, roll, group, phone: "", email: "", note: "" });
+      added++;
+    }
+  });
+  store("classmates", classmates);
+  renderClassmates();
+  renderHome();
+  $("ocrText").value = "";
+  $("ocrStatus").textContent = `Added ${added} · Updated ${updated} · Skipped ${skipped} already saved`;
+});
+
+// ================= REMINDER =================
+function reminderBody() {
+  const classes = todayClasses().map((c) => `${c.start} ${c.subject}`).join(", ") || "No classes";
+  const due = openDeadlines().filter((d) => daysUntil(d.date) <= 1).map((d) => d.task).join(", ") || "No urgent deadlines";
+  return `Classes: ${classes}. Due soon: ${due}.`;
+}
+function notify(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return false;
+  navigator.serviceWorker.ready
+    .then((reg) => reg.showNotification(title, { body, icon: "icon-192.png", tag: "campus-buddy" }))
+    .catch(() => {});
+  return true;
+}
+function checkReminder() {
+  if (!reminder.on || reminder.lastShown === todayStr()) return;
+  const now = new Date();
+  const [h, m] = reminder.time.split(":").map(Number);
+  if (now.getHours() * 60 + now.getMinutes() < h * 60 + m) return;
+  if (notify("Good morning " + (profile?.name || "") + " ☀️", reminderBody())) {
+    reminder.lastShown = todayStr();
+    store("reminder", reminder);
+  }
+}
+function renderSettings() {
+  $("rOn").checked = reminder.on;
+  $("rTime").value = reminder.time;
+  $("reminderStatus").textContent = !("Notification" in window) ? "Notifications are not supported on this device."
+    : Notification.permission === "granted" ? "Notifications are allowed ✅"
+    : Notification.permission === "denied" ? "Notifications are blocked. Enable them in phone settings."
+    : "Tap Allow notifications first.";
+}
+$("saveReminder").addEventListener("click", () => {
+  reminder.on = $("rOn").checked;
+  reminder.time = $("rTime").value || "07:00";
+  store("reminder", reminder);
+  $("reminderStatus").textContent = reminder.on ? `Saved. Reminder at ${reminder.time} when you open the app.` : "Reminder turned off.";
+});
+$("enableNotif").addEventListener("click", async () => {
+  if ("Notification" in window) await Notification.requestPermission();
+  renderSettings();
+});
+$("testNotif").addEventListener("click", () => {
+  if (!notify("Campus Buddy ✅", reminderBody())) alert("Tap 'Allow notifications' first.");
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkReminder(); });
+
+// ================= PIN (protects Online features) =================
+const enc = new TextEncoder();
+let lockSalt = localStorage.getItem("lockSalt");
+let lockHash = localStorage.getItem("lockHash");
+let pendingAction = null;
+const hasPin = () => !!lockHash;
+
+function newSalt() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashPin(salt, pin) {
+  const buf = await crypto.subtle.digest("SHA-256", enc.encode(salt + ":" + pin));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function askPin(action) {
+  pendingAction = action;
+  $("lockMsg").textContent = "Enter PIN to continue";
+  $("pinInput").value = "";
+  $("lock").classList.remove("hidden");
+  setTimeout(() => $("pinInput").focus(), 100);
+}
+function closePin() { pendingAction = null; $("lock").classList.add("hidden"); }
+
+$("pinBtn").addEventListener("click", async () => {
+  const pin = $("pinInput").value;
+  if (!/^\d{4,6}$/.test(pin)) { shake($("lock").querySelector(".glass")); $("lockMsg").textContent = "Enter 4 to 6 digits."; return; }
+  if ((await hashPin(lockSalt, pin)) === lockHash) {
+    const action = pendingAction;
+    closePin();
+    if (action) action();
+  } else {
+    shake($("lock").querySelector(".glass"));
+    $("lockMsg").textContent = "Wrong PIN. Try again.";
+    $("pinInput").value = "";
+  }
+});
+$("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinBtn").click(); });
+$("pinCancel").addEventListener("click", closePin);
+$("forgotPin").addEventListener("click", () => {
+  if (!confirm("Erase ALL data on this phone and remove the PIN?")) return;
+  if (!confirm("Are you sure? This cannot be undone.")) return;
+  localStorage.clear();
+  location.reload();
+});
+
+function updatePinStatus() {
+  $("pinStatus").textContent = hasPin()
+    ? "PIN is on. It protects Online features."
+    : "No PIN set. Set one to protect Online features.";
+}
+$("setPin").addEventListener("click", async () => {
+  const current = $("curPin").value;
+  const pin = $("newPin").value;
+  if (hasPin() && (await hashPin(lockSalt, current)) !== lockHash) { alert("Current PIN is wrong."); return; }
+  if (!/^\d{4,6}$/.test(pin)) { alert("PIN must be 4 to 6 digits."); return; }
+  lockSalt = newSalt();
+  lockHash = await hashPin(lockSalt, pin);
+  localStorage.setItem("lockSalt", lockSalt);
+  localStorage.setItem("lockHash", lockHash);
+  $("curPin").value = ""; $("newPin").value = "";
+  updatePinStatus();
+  alert("PIN saved.");
+});
+$("removePin").addEventListener("click", async () => {
+  if (!hasPin()) { alert("No PIN is set."); return; }
+  if ((await hashPin(lockSalt, $("curPin").value)) !== lockHash) { alert("Current PIN is wrong."); return; }
+  localStorage.removeItem("lockSalt");
+  localStorage.removeItem("lockHash");
+  lockSalt = null; lockHash = null;
+  $("curPin").value = "";
+  updatePinStatus();
+  alert("PIN removed.");
+});
+
+$("openOnline").addEventListener("click", () => {
+  if (!hasPin()) { alert("Set a PIN in PIN lock first."); return; }
+  askPin(() => { $("onlinePanel").style.display = "block"; $("openOnline").style.display = "none"; });
+});
+
+// ================= BACKUP, RESTORE, CLEAR (free) =================
+$("exportBtn").addEventListener("click", () => {
+  const data = { app: "campus-buddy", version: 3, savedOn: new Date().toISOString(), profile, subjects, classmates, timetable, exams, deadlines, reminder };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const a = makeEl("a");
+  a.href = url;
+  a.download = "campus-buddy-backup.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+});
+$("restoreBtn").addEventListener("click", () => {
+  const file = $("importFile").files[0];
+  if (!file) { alert("Choose a backup file first."); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data = null;
+    try { data = JSON.parse(reader.result); } catch (e) { data = null; }
+    if (!data || data.app !== "campus-buddy") { alert("That is not a Campus Buddy backup."); return; }
+    if (!confirm("Replace the data on this phone with this backup?")) return;
+    store("profile", data.profile ?? null);
+    store("subjects", data.subjects ?? []);
+    store("classmates", data.classmates ?? []);
+    store("timetable", data.timetable ?? []);
+    store("exams", data.exams ?? []);
+    store("deadlines", data.deadlines ?? []);
+    store("reminder", data.reminder ?? { on: false, time: "07:00", lastShown: "" });
+    location.reload();
+  };
+  reader.readAsText(file);
+});
+$("clearBtn").addEventListener("click", () => {
+  if (!confirm("Delete ALL data on this phone? This cannot be undone.")) return;
+  localStorage.clear();
+  location.reload();
+});
+
+// ================= STARTUP =================
+loadProfileForm();
+renderHome();
+updatePinStatus();
+checkReminder();
+if (!profile) showSection("profile");
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+</script>
+</body>
+</html>
